@@ -1,0 +1,26 @@
+{
+  "id": "vrarchive",
+  "title": "Internet Archive VR",
+  "coordinateSystem": "glTF (right-handed, +Y up, meters). Unity clients mirror X: unity = (-x, y, z), unityYawDeg = 180 - ry * 57.2958",
+  "zones": {
+    "street": {
+      "label": "300 Funston Ave (outside)",
+      "models": ["assets/street/building.glb"],
+      "ground": { "y": 0, "size": 400, "color": "#6f6a63" },
+      "sky": "#a9c8e8",
+      "spawn": [14, 0, -38],
+      "spawnRy": 3.14159
+    },
+    "hall": {
+      "label": "The Great Hall (inside)",
+      "models": ["assets/hall/archive_opti.gltf", "assets/hall/backwall.gltf"],
+      "sky": "#1b1712",
+      "spawn": [6, 0, -3],
+      "spawnRy": -1.5708
+    }
+  },
+  "portals": [
+    { "zone": "street", "pos": [14, 3, -7.5], "radius": 2.2, "to": "hall", "label": "Enter the Great Hall" },
+    { "zone": "hall", "pos": [0, 0, -3], "radius": 1.6, "to": "street", "label": "Exit to Funston Ave", "arriveAt": [14, 0, -20] }
+  ]
+}

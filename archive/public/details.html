@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World · Virtual World Archive</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="theatre"><div class="stage" id="stage">
+    <div class="launch" id="launch">
+      <div id="launchtitle" style="font-size:20px">Loading…</div>
+      <button class="btn" id="playbtn" disabled>▶ Play in browser</button>
+      <div class="small" style="opacity:.8">Opens the archived client, connected to the live server below</div>
+    </div>
+  </div></div>
+
+  <div class="item">
+    <div>
+      <div class="breadcrumb">Software › Virtual Worlds › Server Library</div>
+      <h1 id="title"></h1>
+      <p id="desc"></p>
+      <dl class="meta" id="meta"></dl>
+
+      <section>
+        <h2>Connect another client</h2>
+        <p class="small">Any client that speaks the world's protocol can join the same session. Point it at:</p>
+        <p><code id="wsurl"></code></p>
+        <p class="small muted">For the Unity client, enter this address in the connect screen, or set it as the <code>serverUrl</code> on the <code>VwaBootstrap</code> component.</p>
+      </section>
+
+      <section>
+        <h2>Server log</h2>
+        <pre class="log" id="log">…</pre>
+      </section>
+    </div>
+
+    <aside>
+      <div class="server-panel">
+        <header><span>Server</span><span id="state"></span></header>
+        <div class="content">
+          <dl class="meta" id="live"></dl>
+          <div>
+            <strong class="small">Players online (<span id="count">0</span>)</strong>
+            <ul class="players" id="players"></ul>
+          </div>
+          <div class="actions">
+            <button class="btn secondary" data-act="start">Start</button>
+            <button class="btn secondary" data-act="stop">Stop</button>
+            <button class="btn secondary" data-act="rebuild">Rebuild</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script type="module">
+import { header, api, esc, pill } from '/common.js';
+header('servers');
+const id = location.pathname.split('/').filter(Boolean).pop();
+const $ = s => document.getElementById(s);
+const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/play/${id}`;
+$('wsurl').textContent = wsBase;
+let clientId = null;
+
+$('playbtn').addEventListener('click', () => {
+  const f = document.createElement('iframe');
+  f.src = `/clients/${clientId}/?world=${encodeURIComponent(id)}`;
+  f.allow = 'fullscreen; pointer-lock; autoplay';
+  $('stage').replaceChildren(f);
+  f.focus();
+});
+
+async function refresh() {
+  let s;
+  try { s = await api(`/api/servers/${id}`); } catch (e) { $('title').textContent = 'Not found'; return; }
+  document.title = `${s.title} · Virtual World Archive`;
+  $('title').textContent = s.title; $('desc').textContent = s.description;
+  if ($('launchtitle')) $('launchtitle').textContent = s.title;
+  if (s.client && s.client.id && $('launch')) {
+    clientId = s.client.id; $('playbtn').disabled = false;
+    $('launch').style.backgroundImage = `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url('/clients/${clientId}/thumb.jpg')`;
+  }
+  const live = s.live || {};
+  $('state').innerHTML = pill(s.state === 'running' ? (live.container === 'external' ? 'running' : live.container) : s.state);
+  $('meta').innerHTML = `
+    <dt>Identifier</dt><dd>${esc(s.id)}</dd>
+    <dt>Protocol</dt><dd>${esc(s.protocol)}</dd>
+    <dt>Web client</dt><dd>${s.client ? `<a href="/clients/${esc(s.client.id)}/">${esc(s.client.title || s.client.id)}</a>` : 'none uploaded'}</dd>
+    <dt>Archived</dt><dd>${esc((s.createdAt || '').slice(0, 10))}</dd>
+    <dt>Last deployed</dt><dd>${esc((s.deployedAt || '').replace('T', ' ').slice(0, 19)) || '—'}</dd>`;
+  const st = s.status;
+  $('live').innerHTML = `
+    <dt>Container</dt><dd>${pill(live.container)}</dd>
+    ${s.database ? `<dt>Database</dt><dd>${pill(live.database)} ${esc(s.database)}</dd>` : ''}
+    <dt>Uptime</dt><dd>${st ? fmt(st.uptime_s) : '—'}</dd>
+    ${st && st.total_visits != null ? `<dt>Visits stored</dt><dd>${st.total_visits}</dd><dt>Chat stored</dt><dd>${st.chat_messages}</dd>` : ''}
+    ${s.error ? `<dt>Error</dt><dd style="color:var(--bad)">${esc(s.error)}</dd>` : ''}`;
+  const players = st ? st.players : [];
+  $('count').textContent = players.length;
+  $('players').innerHTML = players.length ? players.map(p => `<li><span class="dot" style="background:${esc(p.color)}"></span>${esc(p.name)}
+    <span class="pill" style="margin-left:auto">${esc(p.platform)}</span><span class="small muted">${esc(p.zone)}</span></li>`).join('')
+    : '<li class="muted">Nobody yet</li>';
+  const logs = s.state === 'running' ? (await api(`/api/servers/${id}/logs`).catch(() => ({ text: '' }))).text : '';
+  const build = await api(`/api/servers/${id}/buildlog`).catch(() => ({ lines: [] }));
+  const text = (logs || build.lines.join('\n') || '(no log yet)').trim();
+  const box = $('log'); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  box.textContent = text; if (atEnd) box.scrollTop = box.scrollHeight;
+}
+const fmt = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`;
+
+document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', async () => {
+  b.disabled = true;
+  try { await api(`/api/servers/${id}/${b.dataset.act}`, { method: 'POST' }); } catch (e) { alert(e.message); }
+  b.disabled = false; refresh();
+}));
+refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>

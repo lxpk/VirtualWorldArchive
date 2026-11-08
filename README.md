@@ -4,6 +4,23 @@ The Virtual World Archive facilitates building and preserving  virtual worlds bo
 
 The web site supports uploading not just front end virtual world content but also server-side backends to support multiplayer virtual worlds and their continued operation in the hands of community.
 
+## TRY IT
+
+```sh
+docker compose up -d --build   # then open http://localhost/
+```
+
+See [DEMO.md](DEMO.md) for the Unity client and a demo script, and
+[toolkit/README.md](toolkit/README.md) for packaging your own server and client.
+
+| Path | What it is |
+| --- | --- |
+| `archive/` | Portal (Archive-style Server Library and item pages), upload API, and orchestrator that runs each world server and its database as Docker containers |
+| `worlds/vrarchive/server/` | Example world server (Node.js, WebSocket, Postgres) |
+| `worlds/vrarchive/webgl-client/` | Browser client (three.js) with the street, building and great hall models |
+| `worlds/vrarchive/unity-client/` | Unity 6 client sharing the same server and models |
+| `toolkit/` | How to package servers and clients for the archive |
+
 ## PROJECT HISTORY
 
 ### The original 3d Scan of the archive

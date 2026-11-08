@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server Library · Virtual World Archive</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="breadcrumb">Software › Virtual Worlds › Server Library</div>
+  <h1>Server Library</h1>
+  <p class="sub">Preserved multiplayer worlds. Each world keeps its game server and database running in a container, so archived clients can still meet each other.</p>
+
+  <div id="servers" class="grid"><p class="muted">Loading…</p></div>
+
+  <section id="upload">
+    <h2>Upload to the archive</h2>
+    <div class="two">
+      <form class="upload" id="serverform">
+        <strong>Game server</strong>
+        <span class="muted small">A <code>.zip</code> or <code>.tar.gz</code> containing a <code>Dockerfile</code>. The server listens on <code>$PORT</code>; a Postgres database is passed in as <code>$DATABASE_URL</code>. See the <a href="/toolkit.html">toolkit</a>.</span>
+        <div class="row2">
+          <label>Identifier<input name="id" required pattern="[a-z0-9-]+" placeholder="my-world"></label>
+          <label>Port<input name="port" type="number" value="7777"></label>
+        </div>
+        <label>Title<input name="title" placeholder="My World (2004)"></label>
+        <label>Description<textarea name="description" rows="2"></textarea></label>
+        <div class="row2">
+          <label>Database<select name="database"><option value="postgres">Postgres</option><option value="none">None</option></select></label>
+          <label>Client identifier<input name="client" placeholder="my-world-webgl"></label>
+        </div>
+        <label>Server package<input name="package" type="file" required accept=".zip,.tar,.tgz,.gz"></label>
+        <div><button class="btn">Upload and start server</button> <span class="small muted" data-msg></span></div>
+      </form>
+      <form class="upload" id="clientform">
+        <strong>Web client</strong>
+        <span class="muted small">A <code>.zip</code> of a browser build with an <code>index.html</code>: a Unity WebGL build, a web export, or an emulator page. It is served at <code>/clients/&lt;id&gt;/</code> and can reach its server at <code>/play/&lt;server-id&gt;</code>.</span>
+        <div class="row2">
+          <label>Identifier<input name="id" required pattern="[a-z0-9-]+" placeholder="my-world-webgl"></label>
+          <label>For server<select name="server" id="serverselect"></select></label>
+        </div>
+        <label>Title<input name="title" placeholder="My World (Unity WebGL)"></label>
+        <label>Client package<input name="package" type="file" required accept=".zip,.tar,.tgz,.gz"></label>
+        <div><button class="btn">Upload client</button> <span class="small muted" data-msg></span></div>
+      </form>
+    </div>
+  </section>
+</div>
+<script type="module">
+import { header, api, esc, pill } from '/common.js';
+header('servers');
+
+async function refresh() {
+  const [servers, clients] = await Promise.all([api('/api/servers'), api('/api/clients')]);
+  const byId = Object.fromEntries(clients.map(c => [c.id, c]));
+  const el = document.getElementById('servers');
+  el.innerHTML = servers.length ? servers.map(s => {
+    const c = s.client && byId[s.client];
+    const thumb = c ? `/clients/${c.id}/thumb.jpg` : '';
+    const live = s.live || {};
+    return `<a class="tile" href="/details/${esc(s.id)}" style="color:inherit;text-decoration:none">
+      <div class="thumb" style="background-image:url('${thumb}')">${pill(s.state === 'running' ? (live.container || s.state) : s.state)}</div>
+      <div class="body"><h3>${esc(s.title)}</h3><p>${esc(s.description).slice(0, 140)}</p>
+      <div class="meta"><span>server: ${esc(s.id)}</span>${s.database ? `<span>db: ${esc(s.database)}</span>` : ''}${c ? `<span>client: ${esc(c.platform)}</span>` : ''}</div></div></a>`;
+  }).join('') : '<p class="muted">No servers yet. Upload one below.</p>';
+  const sel = document.getElementById('serverselect');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">(none)</option>' + servers.map(s => `<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
+  sel.value = cur;
+}
+
+for (const id of ['serverform', 'clientform']) {
+  const f = document.getElementById(id);
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = f.querySelector('[data-msg]'), btn = f.querySelector('button');
+    btn.disabled = true; msg.textContent = 'Uploading…';
+    try {
+      const r = await api(id === 'serverform' ? '/api/servers' : '/api/clients', { method: 'POST', body: new FormData(f) });
+      msg.textContent = 'Uploaded.';
+      if (id === 'serverform') location.href = `/details/${r.id}`;
+      else { f.reset(); refresh(); }
+    } catch (err) { msg.textContent = 'Failed: ' + err.message; }
+    btn.disabled = false;
+  });
+}
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
