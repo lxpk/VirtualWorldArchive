@@ -13,5 +13,6 @@ For game developers trying to package their servers to run within the World Arch
 
 ## WORLD ARCHIVAL EXAMPLE PROJECTS
 World Archival Example Projects are demo projects in various game engines showing a simple multiplayer virtual world client and server implementation allowing it to be archived cleanly on the Virtual World Archive container system.
+- WebGL Example Project
 - Unity 6 Example Project
 - Godot Example Project
