@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const Busboy = require('busboy');
 const docker = require('./docker');
+const auth = require('./auth');
 
 const PORT = Number(process.env.PORT || 8080);
 const DATA = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
@@ -26,6 +27,7 @@ let registry = { servers: {}, clients: {} };
 const buildLogs = {}; // id -> [lines]
 
 // ---------------- registry ----------------
+const SEED_OWNER = null; // seeded worlds have no uploader
 async function loadRegistry() {
   await fsp.mkdir(path.join(DATA, 'clients'), { recursive: true });
   await fsp.mkdir(path.join(DATA, 'servers'), { recursive: true });
@@ -189,7 +191,7 @@ function parseUpload(req, destFile) {
   });
 }
 
-async function registerServer({ id, title, description, port, database, client, sourceDir, packageFile }) {
+async function registerServer({ id, title, description, port, database, client, sourceDir, packageFile, createdBy, policy }) {
   const dir = path.join(DATA, 'servers', id);
   await fsp.mkdir(dir, { recursive: true });
   if (packageFile) await extract(packageFile, path.join(dir, 'src'));
@@ -207,6 +209,8 @@ async function registerServer({ id, title, description, port, database, client, 
     client: client || manifest.client || prev.client || null,
     protocol: manifest.protocol || prev.protocol || 'websocket',
     createdAt: prev.createdAt || new Date().toISOString(),
+    createdBy: prev.createdBy !== undefined ? prev.createdBy : (createdBy || SEED_OWNER),
+    policy: prev.policy || policy || auth.defaultPolicy(),
     state: 'queued',
   };
   if (registry.servers[id].database === 'none') registry.servers[id].database = null;
@@ -216,7 +220,7 @@ async function registerServer({ id, title, description, port, database, client, 
   return registry.servers[id];
 }
 
-async function registerClient({ id, title, server, sourceDir, packageFile }) {
+async function registerClient({ id, title, server, sourceDir, packageFile, createdBy }) {
   const dest = path.join(DATA, 'clients', id);
   if (packageFile) {
     const tmp = dest + '.tmp';
@@ -232,6 +236,7 @@ async function registerClient({ id, title, server, sourceDir, packageFile }) {
   registry.clients[id] = {
     id, title: title || manifest.title || id, server: server || manifest.server || null,
     platform: manifest.platform || 'webgl', createdAt: new Date().toISOString(),
+    createdBy: registry.clients[id]?.createdBy || createdBy || null,
   };
   await saveRegistry();
   return registry.clients[id];
@@ -292,78 +297,227 @@ async function serveFile(res, root, rel) {
 }
 
 function json(res, code, obj) {
-  res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+  res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
+}
+
+function readJson(req, limit = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new auth.HttpError(413, 'Body too large')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}); } catch { reject(new auth.HttpError(400, 'Invalid JSON')); } });
+    req.on('error', reject);
+  });
+}
+
+// ---------------- access checks ----------------
+const deny = (status, msg) => { throw new auth.HttpError(status, msg); };
+function requireUser(user) { if (!user) deny(401, 'Sign in first'); return user; }
+function requireSite(user, perm) {
+  if (!auth.can(user, perm)) deny(user ? 403 : 401, user ? 'You do not have permission to do that' : 'Sign in first');
+}
+function requireInstance(user, s, perm) {
+  if (!auth.instancePermissions(user, s).has(perm)) deny(user ? 403 : 401, user ? `You need ${perm} on ${s.id}` : 'Sign in first');
+}
+// Browsers send Origin on cross-site POSTs; refuse those so a session cookie can't be used by another site.
+function sameOrigin(req) {
+  const o = req.headers.origin;
+  if (!o) return true;
+  try { return new URL(o).host === req.headers.host; } catch { return false; }
+}
+
+function serverView(s, user, { detail = false } = {}) {
+  const perms = auth.instancePermissions(user, s);
+  const pol = s.policy || auth.defaultPolicy();
+  const out = { ...publicServer(s), policy: { mode: pol.mode, access: pol.access }, can: [...perms] };
+  delete out.createdBy;
+  if (detail && (perms.has('instance.policy') || perms.has('instance.operate'))) out.policy = auth.describePolicy(pol);
+  return out;
+}
+
+async function handleUpload(req, res, user, kind) {
+  requireUser(user);
+  const tmp = path.join(DATA, `upload-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+  try {
+    const { fields, gotFile } = await parseUpload(req, tmp);
+    const id = slug(fields.id || (fields._filename || '').replace(/\.(tar\.gz|tgz|tar|zip)$/i, ''));
+    if (!id || !gotFile) return json(res, 400, { error: 'Need an id and a package file' });
+    if (kind === 'server') {
+      const existing = registry.servers[id];
+      let policy = null;
+      if (existing) requireInstance(user, existing, 'instance.configure');
+      else {
+        requireSite(user, 'servers.upload');
+        policy = uploadPolicy(user, fields);
+      }
+      if (fields.client && registry.clients[fields.client] && !canChangeClient(user, registry.clients[fields.client]))
+        deny(403, `You cannot attach client ${fields.client}`);
+      const s = await registerServer({ id, title: fields.title, description: fields.description, port: fields.port,
+        database: fields.database, client: fields.client, packageFile: tmp, createdBy: user.id, policy });
+      return json(res, 202, serverView(s, user));
+    }
+    requireSite(user, 'clients.upload');
+    if (registry.clients[id] && !canChangeClient(user, registry.clients[id])) deny(403, `Client ${id} belongs to someone else`);
+    const target = fields.server && registry.servers[fields.server];
+    if (target) requireInstance(user, target, 'instance.configure');
+    const c = await registerClient({ id, title: fields.title, server: fields.server, packageFile: tmp, createdBy: user.id });
+    if (target && !target.client) { target.client = id; await saveRegistry(); }
+    return json(res, 201, c);
+  } finally {
+    await fsp.rm(tmp, { force: true });
+  }
+}
+
+// A client may be replaced by its uploader, or by whoever can configure the server it belongs to.
+function canChangeClient(user, c) {
+  if (auth.can(user, 'site.admin') || (user && c.createdBy === user.id)) return true;
+  const s = c.server && registry.servers[c.server];
+  return s ? auth.instancePermissions(user, s).has('instance.configure') : auth.can(user, 'servers.manage');
+}
+
+// Policy chosen on the upload form for a new server.
+function uploadPolicy(user, f) {
+  if (f.managed !== '1' && f.managed !== 'on') return auth.sanitizePolicy({ mode: 'open', access: f.access });
+  const mineOnly = !auth.can(user, 'access.manage');
+  const myGroups = new Set(auth.groupsOf(user).map(g => g.id));
+  if (!f.adminGroup) deny(400, 'Pick the group that administers this Managed Server Instance');
+  if (mineOnly && !myGroups.has(f.adminGroup)) deny(403, 'You can only hand a managed instance to a group you belong to');
+  return auth.sanitizePolicy({ mode: 'managed', access: f.access, bindings: [{ group: f.adminGroup, role: f.adminRole || 'instance-admin' }] });
+}
+
+async function route(req, res, url, p, user) {
+  let m;
+  // ---- accounts ----
+  if (p === '/api/me' && req.method === 'GET') {
+    return json(res, 200, { user: auth.publicUser(user, { full: true }), permissions: [...auth.sitePermissions(user)],
+      google: auth.googleEnabled(), registration: auth.settings().registration });
+  }
+  if (p === '/api/me' && req.method === 'PATCH') {
+    const u = await auth.updateProfile(requireUser(user), await readJson(req));
+    return json(res, 200, auth.publicUser(u, { full: true }));
+  }
+  if (p === '/api/auth/login' && req.method === 'POST') return json(res, 200, auth.publicUser(await auth.login(req, res, await readJson(req))));
+  if (p === '/api/auth/register' && req.method === 'POST') return json(res, 201, auth.publicUser(await auth.register(req, res, await readJson(req))));
+  if (p === '/api/auth/logout' && req.method === 'POST') { await auth.endSession(req, res); return json(res, 200, { ok: true }); }
+  if (p === '/auth/google' && req.method === 'GET') return auth.googleStart(req, res, url);
+  if (p === '/auth/google/callback' && req.method === 'GET') return auth.googleCallback(req, res, url);
+
+  // ---- access control (Site Admin panel) ----
+  if (p === '/api/directory' && req.method === 'GET') { requireUser(user); return json(res, 200, auth.directory()); }
+  if (p.startsWith('/api/admin/')) {
+    requireSite(user, 'access.manage');
+    const servers = Object.values(registry.servers);
+    if (p === '/api/admin/access' && req.method === 'GET') {
+      return json(res, 200, { ...auth.accessSnapshot(), servers: servers.map(s => ({ id: s.id, title: s.title, policy: auth.describePolicy(s.policy) })) });
+    }
+    if (p === '/api/admin/settings' && req.method === 'PATCH') { requireSite(user, 'site.admin'); return json(res, 200, await auth.adminSettings(await readJson(req))); }
+    if (p === '/api/admin/users' && req.method === 'POST') return json(res, 201, await auth.adminCreateUser(user, await readJson(req)));
+    if ((m = p.match(/^\/api\/admin\/(users|groups|roles)(?:\/([\w-]+))?$/))) {
+      const [, kind, id] = m;
+      if (req.method === 'DELETE' && id) {
+        if (kind === 'users') await auth.adminDeleteUser(user, id);
+        if (kind === 'groups') await auth.adminDeleteGroup(user, id, servers);
+        if (kind === 'roles') await auth.adminDeleteRole(user, id, servers);
+        return json(res, 200, { ok: true });
+      }
+      if ((req.method === 'PATCH' && id) || (req.method === 'POST' && !id)) {
+        const body = await readJson(req);
+        if (kind === 'users') return json(res, 200, await auth.adminUpdateUser(user, id, body));
+        if (kind === 'groups') return json(res, 200, await auth.adminSaveGroup(user, id, body));
+        if (kind === 'roles') return json(res, 200, await auth.adminSaveRole(user, id, body));
+      }
+    }
+    return json(res, 404, { error: 'not found' });
+  }
+
+  // ---- servers ----
+  if (p === '/api/servers' && req.method === 'GET') {
+    const list = await Promise.all(Object.values(registry.servers).map(async s => ({ ...serverView(s, user), live: await liveState(s.id).catch(() => null) })));
+    return json(res, 200, list);
+  }
+  if (p === '/api/servers' && req.method === 'POST') return handleUpload(req, res, user, 'server');
+  if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)$/)) && req.method === 'GET') {
+    const s = registry.servers[m[1]]; if (!s) return json(res, 404, { error: 'not found' });
+    const [live, status] = await Promise.all([liveState(s.id).catch(() => null), fetchStatus(s.id)]);
+    return json(res, 200, { ...serverView(s, user, { detail: true }), live, status, client: s.client ? registry.clients[s.client] || { id: s.client } : null });
+  }
+  if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)\/policy$/)) && req.method === 'PUT') {
+    const s = registry.servers[m[1]]; if (!s) return json(res, 404, { error: 'not found' });
+    requireInstance(user, s, 'instance.policy');
+    s.policy = auth.sanitizePolicy(await readJson(req));
+    await saveRegistry();
+    return json(res, 200, auth.describePolicy(s.policy));
+  }
+  if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)\/play-token$/)) && req.method === 'GET') {
+    const s = registry.servers[m[1]]; if (!s) return json(res, 404, { error: 'not found' });
+    requireUser(user); requireInstance(user, s, 'instance.join');
+    return json(res, 200, { token: auth.playToken(user, s.id), expiresIn: 12 * 3600 });
+  }
+  if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)\/(start|stop|rebuild|logs|buildlog)$/))) {
+    const [, id, action] = m; const s = registry.servers[id];
+    if (!s) return json(res, 404, { error: 'not found' });
+    if (action === 'buildlog' || action === 'logs') {
+      requireInstance(user, s, 'instance.logs');
+      if (action === 'buildlog') return json(res, 200, { state: s.state, error: s.error, lines: buildLogs[id] || [] });
+      return json(res, 200, { text: await docker.logs(containerName(id)).catch(e => e.message) });
+    }
+    if (req.method !== 'POST') return json(res, 405, { error: 'POST required' });
+    requireInstance(user, s, 'instance.operate');
+    if (action === 'rebuild') { deployServer(id); return json(res, 202, { ok: true }); }
+    if (action === 'start') { if (s.database) await docker.start(dbName(id)); await docker.start(containerName(id)); s.state = 'running'; }
+    if (action === 'stop') { await docker.stop(containerName(id)); if (s.database) await docker.stop(dbName(id)); s.state = 'stopped'; }
+    await saveRegistry(); return json(res, 200, { ok: true });
+  }
+  if (p === '/api/clients' && req.method === 'GET') return json(res, 200, Object.values(registry.clients).map(({ createdBy, ...c }) => c));
+  if (p === '/api/clients' && req.method === 'POST') return handleUpload(req, res, user, 'client');
+
+  // ---- static ----
+  if (p.startsWith('/clients/')) return serveFile(res, path.join(DATA, 'clients'), p.slice('/clients/'.length));
+  if (/^\/details\/[a-z0-9-]+\/?$/.test(p)) return serveFile(res, PUBLIC, 'details.html');
+  if (p === '/admin' || p === '/login' || p === '/account') return serveFile(res, PUBLIC, p.slice(1) + '.html');
+  return serveFile(res, PUBLIC, p === '/' ? 'index.html' : p);
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  const p = decodeURIComponent(url.pathname);
   try {
+    const p = decodeURIComponent(url.pathname);
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST', 'access-control-allow-headers': '*' });
+      res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE', 'access-control-allow-headers': '*' });
       return res.end();
     }
-    // ---- API ----
-    if (p === '/api/servers' && req.method === 'GET') {
-      const list = await Promise.all(Object.values(registry.servers).map(async s => ({ ...publicServer(s), live: await liveState(s.id).catch(() => null) })));
-      return json(res, 200, list);
-    }
-    if (p === '/api/servers' && req.method === 'POST') {
-      const tmp = path.join(DATA, `upload-${Date.now()}`);
-      const { fields, gotFile } = await parseUpload(req, tmp);
-      const id = slug(fields.id || (fields._filename || '').replace(/\.(tar\.gz|tgz|tar|zip)$/i, ''));
-      if (!id || !gotFile) { await fsp.rm(tmp, { force: true }); return json(res, 400, { error: 'Need an id and a package file' }); }
-      const s = await registerServer({ id, title: fields.title, description: fields.description, port: fields.port,
-        database: fields.database, client: fields.client, packageFile: tmp });
-      await fsp.rm(tmp, { force: true });
-      return json(res, 202, publicServer(s));
-    }
-    let m;
-    if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)$/)) && req.method === 'GET') {
-      const s = registry.servers[m[1]]; if (!s) return json(res, 404, { error: 'not found' });
-      const [live, status] = await Promise.all([liveState(s.id).catch(() => null), fetchStatus(s.id)]);
-      return json(res, 200, { ...publicServer(s), live, status, client: s.client ? registry.clients[s.client] || { id: s.client } : null });
-    }
-    if ((m = p.match(/^\/api\/servers\/([a-z0-9-]+)\/(start|stop|rebuild|logs|buildlog)$/))) {
-      const [, id, action] = m; const s = registry.servers[id];
-      if (!s) return json(res, 404, { error: 'not found' });
-      if (action === 'buildlog') return json(res, 200, { state: s.state, error: s.error, lines: buildLogs[id] || [] });
-      if (action === 'logs') return json(res, 200, { text: await docker.logs(containerName(id)).catch(e => e.message) });
-      if (req.method !== 'POST') return json(res, 405, { error: 'POST required' });
-      if (action === 'rebuild') { deployServer(id); return json(res, 202, { ok: true }); }
-      if (action === 'start') { if (s.database) await docker.start(dbName(id)); await docker.start(containerName(id)); s.state = 'running'; }
-      if (action === 'stop') { await docker.stop(containerName(id)); if (s.database) await docker.stop(dbName(id)); s.state = 'stopped'; }
-      await saveRegistry(); return json(res, 200, { ok: true });
-    }
-    if (p === '/api/clients' && req.method === 'GET') return json(res, 200, Object.values(registry.clients));
-    if (p === '/api/clients' && req.method === 'POST') {
-      const tmp = path.join(DATA, `upload-${Date.now()}`);
-      const { fields, gotFile } = await parseUpload(req, tmp);
-      const id = slug(fields.id || (fields._filename || '').replace(/\.(tar\.gz|tgz|tar|zip)$/i, ''));
-      if (!id || !gotFile) { await fsp.rm(tmp, { force: true }); return json(res, 400, { error: 'Need an id and a package file' }); }
-      const c = await registerClient({ id, title: fields.title, server: fields.server, packageFile: tmp });
-      await fsp.rm(tmp, { force: true });
-      if (c.server && registry.servers[c.server] && !registry.servers[c.server].client) { registry.servers[c.server].client = id; await saveRegistry(); }
-      return json(res, 201, c);
-    }
-    // ---- static ----
-    if (p.startsWith('/clients/')) return serveFile(res, path.join(DATA, 'clients'), p.slice('/clients/'.length));
-    if ((m = p.match(/^\/details\/[a-z0-9-]+\/?$/))) return serveFile(res, PUBLIC, 'details.html');
-    return serveFile(res, PUBLIC, p === '/' ? 'index.html' : p);
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !sameOrigin(req)) return json(res, 403, { error: 'Cross-site request refused' });
+    await route(req, res, url, p, auth.currentUser(req));
   } catch (e) {
-    console.error(e); json(res, 500, { error: e.message });
+    if (e instanceof auth.HttpError) return json(res, e.status, { error: e.message });
+    console.error(e);
+    if (!res.headersSent) json(res, 500, { error: e.message });
   }
 });
 
 // WebSocket proxy: /play/<serverId>  ->  ws://vwa-<serverId>:<port>/
+// The archive decides who may join (instance policy) and tells the world server who
+// the player is with X-VWA-* headers; client-supplied X-VWA-* headers are dropped.
 server.on('upgrade', (req, socket, head) => {
-  const m = (req.url || '').match(/^\/play\/([a-z0-9-]+)/);
+  const url = new URL(req.url || '/', 'http://x');
+  const m = url.pathname.match(/^\/play\/([a-z0-9-]+)/);
   const t = m && serverTarget(m[1]);
-  if (!t) { socket.end('HTTP/1.1 404 Not Found\r\n\r\n'); return; }
+  const s = m && registry.servers[m[1]];
+  if (!t || !s) { socket.end('HTTP/1.1 404 Not Found\r\n\r\n'); return; }
+  const user = auth.currentUser(req) || (url.searchParams.get('token') ? auth.userFromPlayToken(url.searchParams.get('token'), s.id) : null);
+  const perms = auth.instancePermissions(user, s);
+  if (!perms.has('instance.join')) { socket.end(`HTTP/1.1 ${user ? '403 Forbidden' : '401 Unauthorized'}\r\n\r\n`); return; }
   const upstream = net.connect(t.port, t.host, () => {
     let headers = `GET / HTTP/1.1\r\n`;
-    for (let i = 0; i < req.rawHeaders.length; i += 2) headers += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      const k = req.rawHeaders[i];
+      if (/^(x-vwa-|cookie$)/i.test(k)) continue;
+      headers += `${k}: ${req.rawHeaders[i + 1]}\r\n`;
+    }
+    if (user) {
+      headers += `X-VWA-User-Id: ${user.id}\r\nX-VWA-User-Name: ${encodeURIComponent(user.name)}\r\n`;
+      headers += `X-VWA-Permissions: ${[...perms].join(',')}\r\n`;
+    }
     upstream.write(headers + '\r\n');
     if (head && head.length) upstream.write(head);
     upstream.pipe(socket); socket.pipe(upstream);
@@ -375,6 +529,7 @@ server.on('upgrade', (req, socket, head) => {
 
 (async () => {
   await loadRegistry();
+  await auth.init(DATA);
   server.listen(PORT, () => console.log(`[archive] http://localhost:${PORT}`));
   await seed().catch(e => console.error('[seed]', e));
   await reconcile().catch(e => console.error('[reconcile]', e));

@@ -20,6 +20,7 @@
     <div>
       <div class="breadcrumb">Software › Virtual Worlds › Server Library</div>
       <h1 id="title"></h1>
+      <div id="badges"></div>
       <p id="desc"></p>
       <dl class="meta" id="meta"></dl>
 
@@ -28,9 +29,19 @@
         <p class="small">Any client that speaks the world's protocol can join the same session. Point it at:</p>
         <p><code id="wsurl"></code></p>
         <p class="small muted">For the Unity client, enter this address in the connect screen, or set it as the <code>serverUrl</code> on the <code>VwaBootstrap</code> component.</p>
+        <div id="tokenbox" hidden>
+          <p class="small">This world only admits signed-in or authorized players. Clients that can't use your browser sign-in (like Unity) need a personal address with a play token, valid for 12 hours.</p>
+          <p><button class="btn secondary" id="tokenbtn">Get my player address</button></p>
+          <p><code id="tokenurl" style="word-break:break-all"></code></p>
+        </div>
       </section>
 
-      <section>
+      <section id="policy" hidden>
+        <h2>Instance policy</h2>
+        <div id="policybody"></div>
+      </section>
+
+      <section id="logsec" hidden>
         <h2>Server log</h2>
         <pre class="log" id="log">…</pre>
       </section>
@@ -45,7 +56,7 @@
             <strong class="small">Players online (<span id="count">0</span>)</strong>
             <ul class="players" id="players"></ul>
           </div>
-          <div class="actions">
+          <div class="actions" id="actions" hidden>
             <button class="btn secondary" data-act="start">Start</button>
             <button class="btn secondary" data-act="stop">Stop</button>
             <button class="btn secondary" data-act="rebuild">Rebuild</button>
@@ -56,15 +67,17 @@
   </div>
 </div>
 <script type="module">
-import { header, api, esc, pill } from '/common.js';
+import { header, api, esc, pill, me, policyBadge } from '/common.js';
 header('servers');
 const id = location.pathname.split('/').filter(Boolean).pop();
 const $ = s => document.getElementById(s);
 const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/play/${id}`;
 $('wsurl').textContent = wsBase;
-let clientId = null;
+let clientId = null, canJoin = false, policyDrawn = false;
+const viewer = await me();
 
 $('playbtn').addEventListener('click', () => {
+  if (!canJoin) { location.href = `/login?next=${encodeURIComponent(location.pathname)}`; return; }
   const f = document.createElement('iframe');
   f.src = `/clients/${clientId}/?world=${encodeURIComponent(id)}`;
   f.allow = 'fullscreen; pointer-lock; autoplay';
@@ -78,8 +91,12 @@ async function refresh() {
   document.title = `${s.title} · Virtual World Archive`;
   $('title').textContent = s.title; $('desc').textContent = s.description;
   if ($('launchtitle')) $('launchtitle').textContent = s.title;
+  const can = new Set(s.can || []);
+  canJoin = can.has('instance.join');
+  $('badges').innerHTML = policyBadge(s.policy);
   if (s.client && s.client.id && $('launch')) {
-    clientId = s.client.id; $('playbtn').disabled = false;
+    clientId = s.client.id; $('playbtn').disabled = !canJoin && !!viewer.user;
+    $('playbtn').textContent = canJoin ? '▶ Play in browser' : viewer.user ? 'Restricted: ask an instance admin for access' : '▶ Sign in to play';
     $('launch').style.backgroundImage = `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url('/clients/${clientId}/thumb.jpg')`;
   }
   const live = s.live || {};
@@ -102,6 +119,11 @@ async function refresh() {
   $('players').innerHTML = players.length ? players.map(p => `<li><span class="dot" style="background:${esc(p.color)}"></span>${esc(p.name)}
     <span class="pill" style="margin-left:auto">${esc(p.platform)}</span><span class="small muted">${esc(p.zone)}</span></li>`).join('')
     : '<li class="muted">Nobody yet</li>';
+  $('actions').hidden = !can.has('instance.operate');
+  $('tokenbox').hidden = !(viewer.user && canJoin && s.policy.access !== 'public');
+  if (s.policy.bindings && !policyDrawn) { policyDrawn = true; drawPolicy(s, can.has('instance.policy')); }
+  $('logsec').hidden = !can.has('instance.logs');
+  if (!can.has('instance.logs')) return;
   const logs = s.state === 'running' ? (await api(`/api/servers/${id}/logs`).catch(() => ({ text: '' }))).text : '';
   const build = await api(`/api/servers/${id}/buildlog`).catch(() => ({ lines: [] }));
   const text = (logs || build.lines.join('\n') || '(no log yet)').trim();
@@ -115,6 +137,58 @@ document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click',
   try { await api(`/api/servers/${id}/${b.dataset.act}`, { method: 'POST' }); } catch (e) { alert(e.message); }
   b.disabled = false; refresh();
 }));
+$('tokenbtn').onclick = async () => {
+  try { const t = await api(`/api/servers/${id}/play-token`); $('tokenurl').textContent = `${wsBase}?token=${t.token}`; }
+  catch (e) { $('tokenurl').textContent = e.message; }
+};
+
+// ---------- instance policy ----------
+const ACCESS = { public: 'Everyone (guests too)', members: 'Signed-in users', restricted: 'Only groups bound with instance.join' };
+async function drawPolicy(s, editable) {
+  $('policy').hidden = false;
+  const dir = editable ? await api('/api/directory') : { groups: [], roles: [] };
+  const bindable = dir.roles.filter(r => r.instance.length);
+  let pol = { mode: s.policy.mode, access: s.policy.access, bindings: s.policy.bindings.map(b => ({ ...b })) };
+  const body = $('policybody');
+  const draw = (msg = '') => {
+    const ro = editable ? '' : 'disabled';
+    body.innerHTML = `
+      <div class="card">
+        <label class="check"><input type="radio" name="mode" value="open" ${pol.mode !== 'managed' ? 'checked' : ''} ${ro}>
+          <span><strong>Open server</strong><br><span class="small muted">Curators (<code>servers.manage</code>), Site Admins and the uploader administer it, plus any bound groups.</span></span></label>
+        <label class="check"><input type="radio" name="mode" value="managed" ${pol.mode === 'managed' ? 'checked' : ''} ${ro}>
+          <span><strong>Managed Server Instance</strong><br><span class="small muted">Only members of the groups bound below can administer it, with their role's instance permissions. Site Admins can still edit this policy.</span></span></label>
+        <label>Who can join<select name="access" ${ro}>${Object.entries(ACCESS).map(([k, v]) => `<option value="${k}" ${pol.access === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <div><strong class="small">Group role bindings</strong>
+          <ul class="bindings">${pol.bindings.map((b, i) => `<li><span class="chip">${esc(b.groupName || b.group)}</span> → <span class="chip">${esc(b.roleName || b.role)}</span>
+            ${editable ? `<button class="linkbtn" style="color:var(--bad)" data-rm="${i}" type="button">remove</button>` : ''}</li>`).join('') || '<li class="muted">No bindings</li>'}</ul></div>
+        ${editable ? `<div class="row2">
+            <label>Group<select id="bgroup">${dir.groups.map(g => `<option value="${esc(g.id)}">${esc(g.name)} (${g.members})</option>`).join('')}</select></label>
+            <label>Role<select id="brole">${bindable.map(r => `<option value="${esc(r.id)}" title="${esc(r.instance.join(', '))}">${esc(r.name)}</option>`).join('')}</select></label></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn secondary" type="button" id="badd" ${dir.groups.length ? '' : 'disabled'}>Add binding</button>
+            <button class="btn" type="button" id="psave">Save policy</button> <span class="small" id="pmsg">${msg}</span></div>
+          ${dir.groups.length ? '' : '<p class="small muted">No groups exist yet. A Site Admin creates groups under <a href="/admin#groups">Access control</a>.</p>'}` : '<p class="small muted">Only members of a group bound with <code>instance.policy</code> can change this.</p>'}
+      </div>`;
+    if (!editable) return;
+    body.querySelectorAll('[name=mode]').forEach(r => (r.onchange = () => { pol.mode = r.value; }));
+    body.querySelector('[name=access]').onchange = e => { pol.access = e.target.value; };
+    body.querySelectorAll('[data-rm]').forEach(b => (b.onclick = () => { pol.bindings.splice(Number(b.dataset.rm), 1); draw(); }));
+    $('badd').onclick = () => {
+      const g = dir.groups.find(x => x.id === $('bgroup').value), r = bindable.find(x => x.id === $('brole').value);
+      if (g && r && !pol.bindings.some(b => b.group === g.id && b.role === r.id)) pol.bindings.push({ group: g.id, role: r.id, groupName: g.name, roleName: r.name });
+      draw();
+    };
+    $('psave').onclick = async () => {
+      try {
+        const saved = await api(`/api/servers/${id}/policy`, { method: 'PUT', body: { mode: pol.mode, access: pol.access, bindings: pol.bindings.map(({ group, role }) => ({ group, role })) } });
+        pol = saved; draw('<span class="okmsg">Saved.</span>'); refresh();
+      } catch (e) { draw(`<span class="error">${esc(e.message)}</span>`); }
+    };
+  };
+  draw();
+  if (location.hash === '#policy') $('policy').scrollIntoView();
+}
+
 refresh(); setInterval(refresh, 2000);
 </script>
 </body>

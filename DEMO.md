@@ -14,6 +14,50 @@ On first start the archive seeds itself with the Internet Archive VR world: it b
 the world server image, starts it plus a Postgres database as their own containers, and
 publishes the WebGL client. Open <http://localhost/> (or your `HTTP_PORT`).
 
+## Accounts and access control
+
+- **Site Admin.** With `ADMIN_PASSWORD` set in `.env`, the archive creates a Site Admin
+  account `ADMIN_EMAIL` (default `admin@localhost`) on first start. The Oracle deploy script
+  generates that password; read it with `grep ADMIN_PASSWORD .env`. Without it, the first
+  account registered becomes Site Admin.
+- **Sign in** at `/login` with email and password, or with Google when configured (below).
+  Users manage their name, password and Google link at `/account`.
+- **Access control** (`/admin`, Site Admin) has tabs for Users, Groups, Roles, Server
+  policies and Settings. Roles bundle permissions:
+  - *site* permissions (`site.admin`, `access.manage`, `servers.upload`, `clients.upload`,
+    `servers.manage`, `servers.logs`, `servers.play`) apply when a role is given to a user
+    or a group;
+  - *instance* permissions (`instance.join`, `instance.logs`, `instance.operate`,
+    `instance.configure`, `instance.policy`) apply when a role is bound to a group in a
+    server's policy.
+  Built-in roles: Site Admin, Guest (everyone), Member (every signed-in user), plus editable
+  defaults Curator, Instance Admin, Instance Operator and Instance Player.
+- **Server policies.** Each world's page has an *Instance policy* panel:
+  - *Open server*: Curators (`servers.manage`), Site Admins and the uploader administer it.
+  - *Managed Server Instance*: only members of the groups bound to it administer it, each
+    with its bound role's instance permissions. Site Admins can still edit the policy so an
+    instance can't be orphaned, but they don't start, stop or read logs unless bound.
+  - *Who can join*: everyone, signed-in users, or only groups bound with `instance.join`.
+    Clients without the browser's sign-in (Unity) use the personal address with a play
+    token from the world page.
+  Uploaders can make a new server a Managed Server Instance on the upload form.
+
+### Google sign-in (optional)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create a
+   project, configure the OAuth consent screen (External; while it is in *Testing*, add the
+   Google accounts that may sign in as test users), then **Create credentials → OAuth client
+   ID → Web application**.
+2. Add the authorized redirect URI `https://<your-host>/auth/google/callback` (for the Oracle
+   VM: `https://<ip-with-dashes>.sslip.io/auth/google/callback`; locally
+   `http://localhost/auth/google/callback`). Access control → Settings shows the exact URI.
+3. Put the client ID and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
+   optionally `PUBLIC_URL`, `ADMIN_EMAILS` (Google addresses that are always Site Admin) and
+   `GOOGLE_ALLOWED_DOMAINS`, then `docker compose up -d`.
+
+A Google sign-in never takes over an existing password account with the same email: the owner
+signs in with the password and links Google on `/account`.
+
 ## Unity client
 
 1. Open `worlds/vrarchive/unity-client` in Unity Hub (Unity 6, any 6000.x). The first
@@ -47,7 +91,8 @@ publishes the WebGL client. Open <http://localhost/> (or your `HTTP_PORT`).
 
 ## Known limits
 
-- No accounts or upload authentication yet. Run it on a private host for demos.
+- Accounts, groups and policies live in `auth.json` in the archive's data volume (fine for a
+  demo; move to Postgres before many users).
 - Inside and outside are separate zones joined by portals. The scan is not yet
   aligned with the exterior model.
 - Collision is simple (floor and chest-height walls), so scanned furniture is walkable.

@@ -3,6 +3,7 @@
   --link: #428bca; --panel: #f6f6f6; --ok: #2b8a3e; --warn: #c77c02; --bad: #c92a2a;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif; }
 a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
 .topnav { background: var(--top); color: var(--top-fg); display: flex; align-items: center; gap: 22px; padding: 0 16px; height: 52px; overflow-x: auto; }
@@ -59,3 +60,38 @@ code { background: var(--panel); padding: 0 4px; border-radius: 3px; font-size: 
   .row2 { grid-template-columns: 1fr; }
   .theatre .stage { aspect-ratio: 4 / 3; }
 }
+/* accounts and access control */
+.topnav .account { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 13px; white-space: nowrap; }
+.topnav .account a { color: #ddd; } .topnav .account a.active { color: #fff; }
+.linkbtn { background: none; border: 0; color: #bbb; font: inherit; cursor: pointer; padding: 0; }
+.linkbtn:hover { color: #fff; text-decoration: underline; }
+.badge { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: 1px 6px; border-radius: 3px; background: #e7eef6; color: #2d6da3; }
+.badge.managed { background: #efe6f7; color: #6b2fa0; } .badge.restricted { background: #fbeaea; color: var(--bad); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 16px; display: grid; gap: 10px; }
+.card label { display: grid; gap: 3px; font-size: 13px; font-weight: 600; }
+.card input, .card select, .card textarea, .field { font: inherit; padding: 6px 8px; border: 1px solid #ccc; border-radius: 3px; background: #fff; font-weight: 400; width: 100%; }
+.check { display: flex !important; align-items: flex-start; gap: 8px; font-weight: 400 !important; }
+.check input { width: auto; margin-top: 3px; }
+.error { color: var(--bad); } .okmsg { color: var(--ok); }
+.btn.google { background: #fff; color: #3c4043; border-color: #dadce0; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; } .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 18px; overflow-x: auto; }
+.tabs button { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.tabs button.active { color: var(--fg); border-bottom-color: var(--fg); font-weight: 600; }
+table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.list th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 6px 8px; }
+table.list td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; }
+.tablewrap { overflow-x: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; }
+.permgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 16px; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+dialog { border: 1px solid var(--line); border-radius: 6px; padding: 0; max-width: min(560px, calc(100vw - 32px)); width: 100%; }
+dialog .card { border: 0; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.bindings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bindings li { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+.two { align-items: start; } form.upload { align-content: start; }
+label.check input[type] { width: auto !important; flex: none; }
+@media (max-width: 700px) { .topnav nav a.ext { display: none; } .topnav { gap: 14px; } }

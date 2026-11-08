@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access control · Virtual World Archive</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="breadcrumb">Virtual World Archive › Access control</div>
+  <h1>Permissions, groups and roles</h1>
+  <p class="sub">Roles bundle permissions. Give roles to users directly or through groups. Server instances bind groups to roles in their policy, so a Managed Server Instance is administered only by the group roles bound to it.</p>
+  <p class="error" id="err" hidden></p>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="users" class="active">Users</button>
+    <button data-tab="groups">Groups</button>
+    <button data-tab="roles">Roles</button>
+    <button data-tab="policies">Server policies</button>
+    <button data-tab="settings">Settings</button>
+  </div>
+  <div id="panel"><p class="muted">Loading…</p></div>
+</div>
+
+<dialog id="dlg"><form class="card" id="dlgform" method="dialog"></form></dialog>
+
+<script type="module">
+import { header, api, me, has, esc } from '/common.js';
+header('admin');
+const $ = id => document.getElementById(id);
+const m = await me();
+if (!m.user) location.replace('/login?next=/admin');
+else if (!has(m, 'access.manage')) { $('panel').innerHTML = '<p>You need the <code>access.manage</code> permission (Site Admin) to manage access.</p>'; throw new Error('forbidden'); }
+const isAdmin = has(m, 'site.admin');
+
+let data = null;
+let tab = location.hash.slice(1) || 'users';
+const byId = list => Object.fromEntries(list.map(x => [x.id, x]));
+const chips = (ids, map, empty = '—') => ids.length ? `<div class="chips">${ids.map(i => `<span class="chip">${esc(map[i]?.name || i)}</span>`).join('')}</div>` : `<span class="muted">${empty}</span>`;
+const showErr = e => { $('err').textContent = e.message; $('err').hidden = false; scrollTo(0, 0); };
+
+async function load() {
+  data = await api('/api/admin/access');
+  render();
+}
+
+function render() {
+  $('err').hidden = true;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  ({ users, groups, roles, policies, settings })[tab]();
+}
+$('tabs').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; history.replaceState(null, '', '#' + tab); render(); } };
+
+// ---------- users ----------
+function users() {
+  const roles = byId(data.roles), groups = byId(data.groups);
+  $('panel').innerHTML = `
+    <p><button class="btn" id="add">Add user</button></p>
+    <div class="tablewrap"><table class="list">
+      <tr><th>User</th><th>Sign-in</th><th>Roles</th><th>Groups</th><th>Status</th><th></th></tr>
+      ${data.users.map(u => `<tr>
+        <td><strong>${esc(u.name)}</strong><br><span class="small muted">${esc(u.email)}</span></td>
+        <td class="small">${[u.password && 'password', u.google && 'Google'].filter(Boolean).join(', ') || '<span class="muted">none</span>'}</td>
+        <td>${chips(u.roles, roles, 'Member')}</td>
+        <td>${chips(u.groups, groups)}</td>
+        <td class="small">${u.disabled ? '<span class="error">disabled</span>' : 'active'}<br><span class="muted">${u.lastLogin ? 'last in ' + esc(u.lastLogin.slice(0, 10)) : 'never signed in'}</span></td>
+        <td><button class="btn secondary" data-edit="${esc(u.id)}">Edit</button></td></tr>`).join('')}
+    </table></div>`;
+  $('add').onclick = () => editUser(null);
+  document.querySelectorAll('[data-edit]').forEach(b => (b.onclick = () => editUser(data.users.find(u => u.id === b.dataset.edit))));
+}
+
+function roleChecks(selected, { exclude = ['guest', 'member'] } = {}) {
+  return data.roles.filter(r => !exclude.includes(r.id)).map(r => {
+    const lock = r.id === 'site-admin' && !isAdmin;
+    return `<label class="check"><input type="checkbox" name="roles" value="${esc(r.id)}" ${selected.includes(r.id) ? 'checked' : ''} ${lock ? 'disabled' : ''}>
+      <span>${esc(r.name)} <span class="small muted">${esc(r.description || '')}</span></span></label>`;
+  }).join('');
+}
+
+function editUser(u) {
+  const isNew = !u; u ||= { name: '', email: '', roles: [], groups: [], disabled: false };
+  openDialog(`
+    <strong>${isNew ? 'Add user' : 'Edit ' + esc(u.name)}</strong>
+    <label>Name<input name="name" value="${esc(u.name)}" required></label>
+    <label>Email<input name="email" type="email" value="${esc(u.email)}" ${isNew ? 'required' : 'disabled'}></label>
+    <label>${isNew ? 'Password' : 'Set a new password'} <span class="small muted">${isNew ? 'leave empty for a Google-only account' : 'optional'}</span><input name="password" type="password" minlength="8" autocomplete="new-password"></label>
+    <div><strong class="small">Site roles</strong><div class="permgrid">${roleChecks(u.roles)}</div></div>
+    <div><strong class="small">Groups</strong><div class="permgrid">${data.groups.map(g => `<label class="check"><input type="checkbox" name="groups" value="${esc(g.id)}" ${u.groups.includes(g.id) ? 'checked' : ''}>${esc(g.name)}</label>`).join('') || '<span class="muted small">No groups yet</span>'}</div></div>
+    ${isNew ? '' : `<label class="check"><input type="checkbox" name="disabled" ${u.disabled ? 'checked' : ''}> Disabled (signs the user out and blocks sign-in)</label>`}
+  `, async f => {
+    const body = { name: f.get('name'), roles: f.getAll('roles'), groups: f.getAll('groups') };
+    if (f.get('password')) body.password = f.get('password');
+    if (isNew) { body.email = f.get('email'); await api('/api/admin/users', { method: 'POST', body }); }
+    else { body.disabled = f.get('disabled') === 'on'; await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body }); }
+  }, isNew || u.id === m.user.id ? null : () => api(`/api/admin/users/${u.id}`, { method: 'DELETE' }));
+}
+
+// ---------- groups ----------
+function groups() {
+  const roles = byId(data.roles), users = byId(data.users);
+  $('panel').innerHTML = `
+    <p><button class="btn" id="add">New group</button></p>
+    ${data.groups.length ? '' : '<p class="muted">No groups yet. Create one, add members, then bind it to a server instance on the world page or under Server policies.</p>'}
+    <div class="tablewrap"><table class="list">
+      <tr><th>Group</th><th>Members</th><th>Site roles</th><th>Server bindings</th><th></th></tr>
+      ${data.groups.map(g => {
+        const binds = data.servers.flatMap(s => s.policy.bindings.filter(b => b.group === g.id).map(b => `${s.id}: ${b.roleName}`));
+        return `<tr>
+        <td><strong>${esc(g.name)}</strong><br><span class="small muted">${esc(g.description || '')}</span></td>
+        <td>${chips(g.members, users, 'nobody')}</td>
+        <td>${chips(g.roles, roles)}</td>
+        <td class="small">${binds.map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
+        <td><button class="btn secondary" data-edit="${esc(g.id)}">Edit</button></td></tr>`; }).join('')}
+    </table></div>`;
+  $('add').onclick = () => editGroup(null);
+  document.querySelectorAll('[data-edit]').forEach(b => (b.onclick = () => editGroup(data.groups.find(g => g.id === b.dataset.edit))));
+}
+
+function editGroup(g) {
+  const isNew = !g; g ||= { name: '', description: '', roles: [], members: [] };
+  openDialog(`
+    <strong>${isNew ? 'New group' : 'Edit ' + esc(g.name)}</strong>
+    <label>Name<input name="name" value="${esc(g.name)}" required placeholder="VR Archive Team"></label>
+    <label>Description<input name="description" value="${esc(g.description || '')}"></label>
+    <div><strong class="small">Members</strong><div class="permgrid">${data.users.map(u => `<label class="check"><input type="checkbox" name="members" value="${esc(u.id)}" ${g.members.includes(u.id) ? 'checked' : ''}><span>${esc(u.name)} <span class="small muted">${esc(u.email)}</span></span></label>`).join('')}</div></div>
+    <div><strong class="small">Site roles for every member</strong> <span class="small muted">(optional; instance roles are bound per server)</span><div class="permgrid">${roleChecks(g.roles)}</div></div>
+  `, async f => {
+    const body = { name: f.get('name'), description: f.get('description'), members: f.getAll('members'), roles: f.getAll('roles') };
+    await api(isNew ? '/api/admin/groups' : `/api/admin/groups/${g.id}`, { method: isNew ? 'POST' : 'PATCH', body });
+  }, isNew ? null : () => api(`/api/admin/groups/${g.id}`, { method: 'DELETE' }));
+}
+
+// ---------- roles ----------
+function roles() {
+  const P = { ...data.permissions.site, ...data.permissions.instance };
+  $('panel').innerHTML = `
+    <p><button class="btn" id="add">New role</button></p>
+    <p class="small muted">Site permissions apply when a role is given to a user or group. Instance permissions apply when a role is bound to a group in a server's policy. <strong>Guest</strong> applies to everyone and <strong>Member</strong> to every signed-in user.</p>
+    <div class="tablewrap"><table class="list">
+      <tr><th>Role</th><th>Site permissions</th><th>Instance permissions</th><th></th></tr>
+      ${data.roles.map(r => `<tr>
+        <td><strong>${esc(r.name)}</strong>${r.builtin ? ' <span class="badge">built-in</span>' : ''}<br><span class="small muted">${esc(r.description || '')}</span></td>
+        <td>${chips(r.permissions.filter(p => p in data.permissions.site), Object.fromEntries(Object.keys(P).map(k => [k, { name: k }])))}</td>
+        <td>${chips(r.permissions.filter(p => p in data.permissions.instance), Object.fromEntries(Object.keys(P).map(k => [k, { name: k }])))}</td>
+        <td>${r.locked ? '<span class="small muted">locked</span>' : `<button class="btn secondary" data-edit="${esc(r.id)}">Edit</button>`}</td></tr>`).join('')}
+    </table></div>`;
+  $('add').onclick = () => editRole(null);
+  document.querySelectorAll('[data-edit]').forEach(b => (b.onclick = () => editRole(data.roles.find(r => r.id === b.dataset.edit))));
+}
+
+function editRole(r) {
+  const isNew = !r; r ||= { name: '', description: '', permissions: [] };
+  const box = (perms, k) => Object.entries(perms).map(([p, d]) => `<label class="check"><input type="checkbox" name="perm" value="${esc(p)}" ${r.permissions.includes(p) ? 'checked' : ''} ${p === 'site.admin' && !isAdmin ? 'disabled' : ''}>
+    <span><code>${esc(p)}</code><br><span class="small muted">${esc(d)}</span></span></label>`).join('');
+  openDialog(`
+    <strong>${isNew ? 'New role' : 'Edit ' + esc(r.name)}</strong>
+    <label>Name<input name="name" value="${esc(r.name)}" required ${r.builtin ? 'readonly' : ''}></label>
+    <label>Description<input name="description" value="${esc(r.description || '')}"></label>
+    <div><strong class="small">Site permissions</strong><div class="permgrid">${box(data.permissions.site)}</div></div>
+    <div><strong class="small">Instance permissions</strong><div class="permgrid">${box(data.permissions.instance)}</div></div>
+  `, async f => {
+    const body = { name: f.get('name'), description: f.get('description'), permissions: f.getAll('perm') };
+    await api(isNew ? '/api/admin/roles' : `/api/admin/roles/${r.id}`, { method: isNew ? 'POST' : 'PATCH', body });
+  }, isNew || r.builtin ? null : () => api(`/api/admin/roles/${r.id}`, { method: 'DELETE' }));
+}
+
+// ---------- policies ----------
+function policies() {
+  $('panel').innerHTML = `
+    <p class="small muted">Each world server has a policy. <strong>Open</strong> servers are run by Curators (<code>servers.manage</code>) and their uploader. A <strong>Managed Server Instance</strong> can only be administered by members of the groups bound to it, with the bound role's instance permissions. Site Admins can always edit a policy so an instance is never orphaned. Edit a policy on the world's page.</p>
+    <div class="tablewrap"><table class="list">
+      <tr><th>Server</th><th>Mode</th><th>Who can join</th><th>Bindings (group → role)</th><th></th></tr>
+      ${data.servers.map(s => `<tr>
+        <td><strong>${esc(s.title)}</strong><br><span class="small muted">${esc(s.id)}</span></td>
+        <td>${s.policy.mode === 'managed' ? '<span class="badge managed">Managed</span>' : 'Open'}</td>
+        <td class="small">${({ public: 'Everyone', members: 'Signed-in users', restricted: 'Bound groups only' })[s.policy.access] || 'Everyone'}</td>
+        <td class="small">${s.policy.bindings.map(b => `${esc(b.groupName)} → ${esc(b.roleName)}`).join('<br>') || '<span class="muted">none</span>'}</td>
+        <td><a class="btn secondary" href="/details/${esc(s.id)}#policy">Edit policy</a></td></tr>`).join('')}
+    </table></div>`;
+}
+
+// ---------- settings ----------
+function settings() {
+  const s = data.settings;
+  $('panel').innerHTML = `
+    <div class="card" style="max-width:640px">
+      <label class="check"><input type="checkbox" id="reg" ${s.registration ? 'checked' : ''} ${isAdmin ? '' : 'disabled'}>
+        <span>Anyone can create an account<br><span class="small muted">When off, only Site Admins add users (Google sign-in also only works for existing accounts).</span></span></label>
+      <div><strong class="small">Google sign-in</strong><br>
+        ${s.google ? '<span class="okmsg">Configured.</span> Users can continue with Google on the sign-in page.'
+          : 'Not configured. Set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in <code>.env</code> and restart the archive. The redirect URI to register with Google is shown below.'}
+        <p><code>${esc(location.origin)}/auth/google/callback</code></p></div>
+    </div>`;
+  const reg = $('reg');
+  reg.onchange = async () => { try { await api('/api/admin/settings', { method: 'PATCH', body: { registration: reg.checked } }); await load(); } catch (e) { showErr(e); } };
+}
+
+// ---------- dialog ----------
+function openDialog(html, onSave, onDelete) {
+  const dlg = $('dlg'), f = $('dlgform');
+  f.innerHTML = html + `<p class="error" data-err hidden></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" value="save">Save</button><button class="btn secondary" value="cancel" formnovalidate>Cancel</button>
+    ${onDelete ? '<button class="btn secondary" value="delete" formnovalidate style="margin-left:auto;color:var(--bad)">Delete</button>' : ''}</div>`;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const action = e.submitter?.value;
+    if (action === 'cancel') return dlg.close();
+    const errEl = f.querySelector('[data-err]');
+    try {
+      if (action === 'delete') { if (!confirm('Delete this? It cannot be undone.')) return; await onDelete(); }
+      else await onSave(new FormData(f));
+      dlg.close(); await load();
+    } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
+  };
+  dlg.showModal();
+}
+
+load().catch(showErr);
+</script>
+</body>
+</html>

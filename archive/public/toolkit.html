@@ -20,6 +20,13 @@
       <dt><code>WORLD_ID</code></dt><dd>The server's identifier in the archive.</dd>
     </dl>
     <p>Players reach your server at <code>/play/&lt;id&gt;</code> on the archive, which proxies WebSockets to your container. Answer <code>GET /status</code> with a <code>players</code> array to show who is online.</p>
+    <p>The archive checks the world's policy before it lets a player through. For signed-in players it adds these headers to the WebSocket handshake (and drops any the client sent):</p>
+    <dl class="meta">
+      <dt><code>X-VWA-User-Id</code></dt><dd>Stable account id.</dd>
+      <dt><code>X-VWA-User-Name</code></dt><dd>Display name, URL-encoded.</dd>
+      <dt><code>X-VWA-Permissions</code></dt><dd>The player's instance permissions, comma separated, e.g. <code>instance.join,instance.operate</code>. Use it to show in-game admin tools only to the instance's administrators.</dd>
+    </dl>
+    <p>Clients that can't send the browser's sign-in cookie (Unity, native) connect with <code>/play/&lt;id&gt;?token=…</code>; players get that address on the world's page.</p>
   </section>
   <section>
     <h2>Web client package</h2>
