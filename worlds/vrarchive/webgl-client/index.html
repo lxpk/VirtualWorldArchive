@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Internet Archive VR</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; font: 14px/1.4 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: #fff; }
+  canvas { display: block; }
+  .panel { position: absolute; background: rgba(0,0,0,.55); border-radius: 6px; padding: 8px 10px; backdrop-filter: blur(4px); }
+  #hud-zone { top: 10px; left: 10px; font-weight: 600; }
+  #hud-zone small { display: block; font-weight: 400; opacity: .8; }
+  #players { top: 10px; right: 10px; min-width: 170px; max-height: 40vh; overflow: auto; }
+  #players h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .75; }
+  #players div { white-space: nowrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .tag { font-size: 10px; padding: 0 4px; border-radius: 3px; background: #444; margin-left: 4px; }
+  .tag.unity { background: #2a6; } .tag.webgl { background: #36c; }
+  #chat { left: 10px; bottom: 10px; width: min(380px, calc(100% - 40px)); }
+  #log { max-height: 140px; overflow: auto; margin-bottom: 6px; font-size: 13px; }
+  #chat input { width: 100%; box-sizing: border-box; border: 0; border-radius: 4px; padding: 6px 8px; font: inherit; }
+  #help { right: 10px; bottom: 10px; font-size: 12px; opacity: .85; }
+  #prompt { position: absolute; left: 50%; top: 55%; transform: translateX(-50%); font-size: 16px; font-weight: 600; display: none; }
+  #start { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,10,10,.75); }
+  #start form { background: #222; padding: 24px; border-radius: 8px; width: min(340px, 90%); text-align: center; }
+  #start h2 { margin: 0 0 4px; } #start p { margin: 0 0 16px; opacity: .8; font-size: 13px; }
+  #start input { width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 10px; border-radius: 4px; border: 0; font: inherit; }
+  #start button { padding: 8px 18px; border: 0; border-radius: 4px; background: #428bca; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  #status { margin-top: 10px; font-size: 12px; opacity: .8; min-height: 1em; }
+  #net { position: absolute; top: 58px; left: 10px; font-size: 12px; }
+</style>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/","three-mesh-bvh":"./vendor/three-mesh-bvh.module.js"}}</script>
+</head>
+<body>
+<div id="hud-zone" class="panel">Loading…<small></small></div>
+<div id="net" class="panel">connecting…</div>
+<div id="players" class="panel"><h4>In this world</h4><div id="plist"></div></div>
+<div id="chat" class="panel"><div id="log"></div><input id="chatin" placeholder="Press Enter to chat" maxlength="200"></div>
+<div id="help" class="panel">Click to look · WASD / arrows to walk · Shift to run · Enter to chat</div>
+<div id="prompt" class="panel"></div>
+<div id="start"><form id="startform">
+  <h2>Internet Archive VR</h2>
+  <p>A multiplayer world preserved on the Virtual World Archive</p>
+  <input id="nameinput" placeholder="Your name" maxlength="24" autocomplete="off">
+  <button type="submit" id="enterbtn">Enter world</button>
+  <div id="status">Loading models…</div>
+</form></div>
+<script>document.getElementById('startform').addEventListener('submit', e => { e.preventDefault(); window.__vwaWantStart = true; document.getElementById('status').textContent = 'Entering as soon as the models finish loading…'; });</script>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
