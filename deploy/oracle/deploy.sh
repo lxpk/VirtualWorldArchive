@@ -95,6 +95,18 @@ if [ "$HTTPS" = "1" ] && [ "$PUBLIC_IP" != "unknown" ]; then
     caddy:2-alpine >/dev/null
 fi
 
+# Wait (up to ~3 min) for the demo world server: the first start builds its
+# image and pulls postgres, which takes about a minute.
+HEALTH_PORT="$(grep -E '^HTTP_PORT=' .env 2>/dev/null | cut -d= -f2)"
+HEALTH_URL="http://127.0.0.1:${HEALTH_PORT:-80}/api/servers/vrarchive"
+echo "Waiting for $HEALTH_URL ..."
+for _ in $(seq 1 36); do
+  body="$(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null || true)"
+  if echo "$body" | grep -q '"running"'; then echo "World server is running."; break; fi
+  sleep 5
+done
+echo "$body" | grep -q '"running"' || echo "World server not reporting running yet; check: docker compose logs -f" >&2
+
 echo
 $DOCKER compose ps
 echo

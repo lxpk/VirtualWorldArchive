@@ -57,7 +57,7 @@ ssh -i ~/Downloads/ssh-key-*.key ubuntu@<PUBLIC_IP> 'cloud-init status --wait'  
 ssh -i ~/Downloads/ssh-key-*.key ubuntu@<PUBLIC_IP> 'BRANCH=main bash -s' < deploy/oracle/deploy.sh
 ```
 
-Until the multiplayer stack is merged, deploy its branch instead: `BRANCH=demo/vr-archive-multiplayer`.
+Until the multiplayer stack (PR #2) is merged, deploy its branch instead: `BRANCH=demo/vr-archive-multiplayer`. The first start takes a minute or two (it builds the world server image and pulls Postgres); the script waits until `GET /api/servers/vrarchive` reports `running`.
 
 When it finishes it prints the URL, for example `https://129-146-1-2.sslip.io/`. That hostname is a free wildcard DNS name for your IP, and Caddy gets a Let's Encrypt certificate for it automatically. HTTPS matters because browsers only allow WebXR (VR headsets) on secure pages. Plain `http://<PUBLIC_IP>/` also works. Use `HTTPS=0` to skip Caddy.
 
