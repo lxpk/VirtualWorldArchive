@@ -1,0 +1,16 @@
+{
+  // One-click free hosting on GitHub Codespaces: the full Docker Compose stack
+  // runs inside the codespace (Docker-in-Docker) and port 8080 is made public.
+  "name": "Virtual World Archive",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": { "HTTP_PORT": "8080" },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Virtual World Archive", "onAutoForward": "openBrowser" }
+  },
+  "postStartCommand": "bash .devcontainer/start.sh"
+}

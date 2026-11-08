@@ -43,27 +43,13 @@ if [ ! -f docker-compose.yml ] && [ ! -f compose.yaml ] && [ ! -f compose.yml ] 
   exit 1
 fi
 
-# --- .env: create from .env.example once, filling secrets with random values ---
-if [ ! -f .env ] && [ -f .env.example ]; then
-  cp .env.example .env
-  # Any KEY=changeme / KEY= (empty) line whose name looks secret gets a random value.
-  while IFS= read -r key; do
-    val="$(openssl rand -hex 24)"
-    sed -i "s|^${key}=.*|${key}=${val}|" .env
-  done < <(grep -E '^[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|KEY)[A-Z0-9_]*=(changeme|change_me|)?$' .env | cut -d= -f1)
-  chmod 600 .env
-  echo "Created .env from .env.example (secrets generated)."
-fi
-
 # Public IP, handy for the stack (e.g. PUBLIC_URL) and for the summary below.
 PUBLIC_IP="$(curl -fsS --max-time 5 https://ifconfig.me || curl -fsS --max-time 5 https://api.ipify.org || echo unknown)"
 export PUBLIC_IP
 
 # --- Optional HTTPS: the stack listens on 8080 on the host, Caddy takes 80/443 ---
-set_env() { grep -q "^$1=" .env 2>/dev/null && sed -i "s|^$1=.*|$1=$2|" .env || echo "$1=$2" >> .env; }
 if [ "$HTTPS" = "1" ] && [ "$PUBLIC_IP" != "unknown" ]; then
   HOSTNAME_PUBLIC="${PUBLIC_IP//./-}.sslip.io"
-  set_env HTTP_PORT 8080
   mkdir -p "$HOME/caddy"
   cat > "$HOME/caddy/Caddyfile" <<CADDY
 ${HOSTNAME_PUBLIC} {
@@ -74,12 +60,16 @@ http://${PUBLIC_IP} {
 	reverse_proxy 127.0.0.1:8080
 }
 CADDY
-  SITE_URL="https://${HOSTNAME_PUBLIC}/"
+  SITE_URL="https://${HOSTNAME_PUBLIC}"
+  APP_PORT=8080
 else
   $DOCKER rm -f vwa-caddy >/dev/null 2>&1 || true
-  [ -f .env ] && sed -i '/^HTTP_PORT=8080$/d' .env
-  SITE_URL="http://${PUBLIC_IP}/"
+  SITE_URL="http://${PUBLIC_IP}"
+  APP_PORT=80
 fi
+
+# --- .env: fill from .env.example (random secrets), set port and public URL ---
+bash deploy/prepare-env.sh "HTTP_PORT=${APP_PORT}" "PUBLIC_URL=${SITE_URL}"
 
 # --- Build natively for arm64 and start ---
 $DOCKER compose pull --ignore-buildable 2>/dev/null || $DOCKER compose pull --ignore-pull-failures || true
@@ -111,6 +101,7 @@ echo
 $DOCKER compose ps
 echo
 echo "Deployed branch '$BRANCH' ($(git rev-parse --short HEAD))."
-echo "Open:  ${SITE_URL}"
+echo "Open:  ${SITE_URL}/"
 [ "$HTTPS" = "1" ] && echo "       (also http://${PUBLIC_IP}/ ; the HTTPS cert can take ~30s on first run)"
+grep -E '^ADMIN_(EMAIL|PASSWORD)=' .env | sed 's/^/Admin: /' || true
 echo "Logs:  cd $APP_DIR && docker compose logs -f"
