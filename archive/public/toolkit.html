@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toolkit · Virtual World Archive</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap" style="max-width:820px">
+  <div class="breadcrumb">Software › Virtual Worlds › Toolkit</div>
+  <h1>World Archival Toolkit</h1>
+  <p class="sub">How to package a multiplayer game so the archive can keep it running.</p>
+  <section>
+    <h2>Server package</h2>
+    <p>Upload a <code>.zip</code> or <code>.tar.gz</code> that contains a <code>Dockerfile</code>. Use multi-arch base images. An optional <code>vwa.json</code> fills in the title, port, database and client.</p>
+    <dl class="meta">
+      <dt><code>PORT</code></dt><dd>The port your server listens on.</dd>
+      <dt><code>DATABASE_URL</code></dt><dd>Postgres connection string, when the world uses a database. The database runs in its own container with a persistent volume.</dd>
+      <dt><code>WORLD_ID</code></dt><dd>The server's identifier in the archive.</dd>
+    </dl>
+    <p>Players reach your server at <code>/play/&lt;id&gt;</code> on the archive, which proxies WebSockets to your container. Answer <code>GET /status</code> with a <code>players</code> array to show who is online.</p>
+  </section>
+  <section>
+    <h2>Web client package</h2>
+    <p>Upload a <code>.zip</code> of a browser build with an <code>index.html</code>: a Unity WebGL build, a web export, or an emulator page. It is served at <code>/clients/&lt;id&gt;/</code> and should connect to <code>/play/&lt;server-id&gt;</code> on the same origin. Add a <code>thumb.jpg</code> for the library tile.</p>
+  </section>
+  <section>
+    <h2>Example projects</h2>
+    <p>The Internet Archive VR world ships a Node.js + Postgres server, a three.js WebGL client, and a Unity 6 client that share one protocol. See <code>worlds/vrarchive/</code> in the repository.</p>
+  </section>
+</div>
+<script type="module">import { header } from '/common.js'; header('toolkit');</script>
+</body>
+</html>

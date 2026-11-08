@@ -1,0 +1,8 @@
+{
+  "name": "virtual-world-archive",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": { "start": "node src/server.js" },
+  "dependencies": { "busboy": "^1.6.0" }
+}

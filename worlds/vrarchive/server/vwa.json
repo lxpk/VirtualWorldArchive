@@ -1,0 +1,9 @@
+{
+  "id": "vrarchive",
+  "title": "Internet Archive VR: Great Hall and Street",
+  "description": "Multiplayer world server for the Internet Archive VR model. Players on the WebGL and Unity clients share the street outside 300 Funston Ave and the great hall inside.",
+  "port": 7777,
+  "protocol": "websocket-json",
+  "database": "postgres",
+  "client": "vrarchive-webgl"
+}
