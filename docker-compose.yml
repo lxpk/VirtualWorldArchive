@@ -11,6 +11,16 @@ services:
     environment:
       SEED_DIR: /seed
       VWA_NETWORK: vwa
+      # Accounts and access control (see .env.example)
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-1}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - archive-data:/data

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your account · Virtual World Archive</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap" style="max-width:720px">
+  <div class="breadcrumb">Virtual World Archive › Account</div>
+  <h1>Your account</h1>
+  <p class="sub" id="who"></p>
+  <p class="okmsg" id="ok" hidden></p>
+
+  <section>
+    <h2>Roles and groups</h2>
+    <dl class="meta" id="access"></dl>
+  </section>
+
+  <section>
+    <h2>Profile</h2>
+    <form class="card" id="profile">
+      <label>Display name<input name="name" maxlength="80" required></label>
+      <div><button class="btn">Save</button> <span class="small" data-msg></span></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Password</h2>
+    <form class="card" id="password">
+      <label data-current>Current password<input name="currentPassword" type="password" autocomplete="current-password"></label>
+      <label>New password<input name="newPassword" type="password" minlength="8" required autocomplete="new-password"></label>
+      <div><button class="btn">Change password</button> <span class="small" data-msg></span></div>
+    </form>
+  </section>
+
+  <section id="googlesec" hidden>
+    <h2>Google</h2>
+    <p id="googlestate"></p>
+  </section>
+</div>
+<script type="module">
+import { header, api, me, esc } from '/common.js';
+header('account');
+const $ = id => document.getElementById(id);
+const m = await me();
+if (!m.user) location.replace('/login?next=/account');
+const u = m.user;
+$('who').textContent = `${u.name} · ${u.email}`;
+if (new URLSearchParams(location.search).get('linked')) { $('ok').textContent = 'Google account linked. You can now sign in with Google.'; $('ok').hidden = false; }
+document.querySelector('#profile [name=name]').value = u.name;
+if (!u.password) document.querySelector('[data-current]').hidden = true;
+
+const dir = await api('/api/directory').catch(() => ({ groups: [], roles: [] }));
+const groupNames = Object.fromEntries(dir.groups.map(g => [g.id, g.name]));
+const roleNames = Object.fromEntries(dir.roles.map(r => [r.id, r.name]));
+$('access').innerHTML = `
+  <dt>Roles</dt><dd>${u.roles.length ? u.roles.map(r => `<span class="chip">${esc(roleNames[r] || r)}</span>`).join(' ') : '<span class="muted">Member</span>'}</dd>
+  <dt>Groups</dt><dd>${u.groups.length ? u.groups.map(g => `<span class="chip">${esc(groupNames[g] || g)}</span>`).join(' ') : '<span class="muted">none</span>'}</dd>
+  <dt>Permissions</dt><dd class="small">${m.permissions.map(esc).join(', ') || 'none'}</dd>`;
+
+if (m.google) {
+  $('googlesec').hidden = false;
+  $('googlestate').innerHTML = u.google ? 'Your Google account is linked.'
+    : 'Link your Google account to sign in with it. <a class="btn secondary" href="/auth/google?link=1">Link Google account</a>';
+}
+
+for (const id of ['profile', 'password']) {
+  $(id).addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = e.target.querySelector('[data-msg]');
+    try {
+      await api('/api/me', { method: 'PATCH', body: Object.fromEntries(new FormData(e.target)) });
+      msg.className = 'small okmsg'; msg.textContent = 'Saved.';
+      if (id === 'password') e.target.reset();
+    } catch (err) { msg.className = 'small error'; msg.textContent = err.message; }
+  });
+}
+</script>
+</body>
+</html>

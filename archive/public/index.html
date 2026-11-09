@@ -16,7 +16,8 @@
 
   <section id="upload">
     <h2>Upload to the archive</h2>
-    <div class="two">
+    <p id="uploadnote" class="muted" hidden></p>
+    <div class="two" id="uploadforms" hidden>
       <form class="upload" id="serverform">
         <strong>Game server</strong>
         <span class="muted small">A <code>.zip</code> or <code>.tar.gz</code> containing a <code>Dockerfile</code>. The server listens on <code>$PORT</code>; a Postgres database is passed in as <code>$DATABASE_URL</code>. See the <a href="/toolkit.html">toolkit</a>.</span>
@@ -29,6 +30,12 @@
         <div class="row2">
           <label>Database<select name="database"><option value="postgres">Postgres</option><option value="none">None</option></select></label>
           <label>Client identifier<input name="client" placeholder="my-world-webgl"></label>
+        </div>
+        <label>Who can join<select name="access"><option value="public">Everyone (guests too)</option><option value="members">Signed-in users</option><option value="restricted">Only groups bound with instance.join</option></select></label>
+        <label class="check"><input type="checkbox" name="managed" id="managed"><span>Managed Server Instance<br><span class="small muted" style="font-weight:400">Only members of the chosen group, with the chosen role, can administer this instance. Re-uploading an existing identifier updates it and keeps its policy.</span></span></label>
+        <div class="row2" id="managedopts" hidden>
+          <label>Administered by group<select name="adminGroup" id="admingroup"></select></label>
+          <label>With role<select name="adminRole" id="adminrole"></select></label>
         </div>
         <label>Server package<input name="package" type="file" required accept=".zip,.tar,.tgz,.gz"></label>
         <div><button class="btn">Upload and start server</button> <span class="small muted" data-msg></span></div>
@@ -48,8 +55,9 @@
   </section>
 </div>
 <script type="module">
-import { header, api, esc, pill } from '/common.js';
+import { header, api, esc, pill, me, has, policyBadge } from '/common.js';
 header('servers');
+const viewer = await me();
 
 async function refresh() {
   const [servers, clients] = await Promise.all([api('/api/servers'), api('/api/clients')]);
@@ -61,7 +69,7 @@ async function refresh() {
     const live = s.live || {};
     return `<a class="tile" href="/details/${esc(s.id)}" style="color:inherit;text-decoration:none">
       <div class="thumb" style="background-image:url('${thumb}')">${pill(s.state === 'running' ? (live.container || s.state) : s.state)}</div>
-      <div class="body"><h3>${esc(s.title)}</h3><p>${esc(s.description).slice(0, 140)}</p>
+      <div class="body"><h3>${esc(s.title)} ${policyBadge(s.policy)}</h3><p>${esc(s.description).slice(0, 140)}</p>
       <div class="meta"><span>server: ${esc(s.id)}</span>${s.database ? `<span>db: ${esc(s.database)}</span>` : ''}${c ? `<span>client: ${esc(c.platform)}</span>` : ''}</div></div></a>`;
   }).join('') : '<p class="muted">No servers yet. Upload one below.</p>';
   const sel = document.getElementById('serverselect');
@@ -69,6 +77,29 @@ async function refresh() {
   sel.innerHTML = '<option value="">(none)</option>' + servers.map(s => `<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
   sel.value = cur;
 }
+
+// Upload forms only for users who may upload; managed-instance options list the groups they may pick.
+async function setupUploads() {
+  const canServer = has(viewer, 'servers.upload'), canClient = has(viewer, 'clients.upload');
+  if (!canServer && !canClient) {
+    $note.hidden = false;
+    $note.innerHTML = viewer.user ? 'Your account cannot upload yet. Ask the Site Admin for the Curator role.'
+      : `<a href="/login?next=/%23upload">Sign in</a> to upload game servers and clients.`;
+    return;
+  }
+  document.getElementById('uploadforms').hidden = false;
+  document.getElementById('serverform').hidden = !canServer;
+  document.getElementById('clientform').hidden = !canClient;
+  const dir = await api('/api/directory');
+  const groups = has(viewer, 'access.manage') ? dir.groups : dir.groups.filter(g => viewer.user.groups.includes(g.id));
+  document.getElementById('admingroup').innerHTML = groups.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('') || '<option value="">(you are in no groups)</option>';
+  document.getElementById('adminrole').innerHTML = dir.roles.filter(r => r.instance.includes('instance.policy') || r.instance.includes('instance.operate'))
+    .map(r => `<option value="${esc(r.id)}" ${r.id === 'instance-admin' ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+  const mg = document.getElementById('managed');
+  mg.onchange = () => { document.getElementById('managedopts').hidden = !mg.checked; };
+}
+const $note = document.getElementById('uploadnote');
+setupUploads();
 
 for (const id of ['serverform', 'clientform']) {
   const f = document.getElementById(id);
