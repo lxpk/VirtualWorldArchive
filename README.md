@@ -1,5 +1,9 @@
 # VIRTUAL WORLD ARCHIVE
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lxpk/VirtualWorldArchive?quickstart=1)
+
+Run it free in one click: see [deploy/CODESPACES.md](deploy/CODESPACES.md). For an always-on server, see [deploy/oracle/README.md](deploy/oracle/README.md).
+
 The Virtual World Archive facilitates building and preserving  virtual worlds both reality-based augmented and historically focused realities and fiction-based purely virtual worlds.
 
 The web site supports uploading not just front end virtual world content but also server-side backends to support multiplayer virtual worlds and their continued operation in the hands of community.
