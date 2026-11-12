@@ -12,6 +12,7 @@
   <h1>Server Library</h1>
   <p class="sub">Preserved multiplayer worlds. Each world keeps its game server and database running in a container, so archived clients can still meet each other.</p>
 
+  <p class="searchnote" id="searchnote" hidden></p>
   <div id="servers" class="grid"><p class="muted">Loading…</p></div>
 
   <section id="upload">
@@ -63,7 +64,13 @@ async function refresh() {
   const [servers, clients] = await Promise.all([api('/api/servers'), api('/api/clients')]);
   const byId = Object.fromEntries(clients.map(c => [c.id, c]));
   const el = document.getElementById('servers');
-  el.innerHTML = servers.length ? servers.map(s => {
+  // Header search (?q=) filters the library by title, description and identifier.
+  const query = (new URLSearchParams(location.search).get('q') || '').trim().toLowerCase();
+  const shown = query ? servers.filter(s => [s.title, s.description, s.id, s.client].join(' ').toLowerCase().includes(query)) : servers;
+  const note = document.getElementById('searchnote');
+  note.hidden = !query;
+  if (query) note.innerHTML = `<span>${shown.length} result${shown.length === 1 ? '' : 's'} for <strong>${esc(query)}</strong></span> <a href="/">Clear search</a>`;
+  el.innerHTML = shown.length ? shown.map(s => {
     const c = s.client && byId[s.client];
     const thumb = c ? `/clients/${c.id}/thumb.jpg` : '';
     const live = s.live || {};
@@ -71,7 +78,7 @@ async function refresh() {
       <div class="thumb" style="background-image:url('${thumb}')">${pill(s.state === 'running' ? (live.container || s.state) : s.state)}</div>
       <div class="body"><h3>${esc(s.title)} ${policyBadge(s.policy)}</h3><p>${esc(s.description).slice(0, 140)}</p>
       <div class="meta"><span>server: ${esc(s.id)}</span>${s.database ? `<span>db: ${esc(s.database)}</span>` : ''}${c ? `<span>client: ${esc(c.platform)}</span>` : ''}</div></div></a>`;
-  }).join('') : '<p class="muted">No servers yet. Upload one below.</p>';
+  }).join('') : `<p class="muted">${query ? 'No worlds match your search.' : 'No servers yet. Upload one below.'}</p>`;
   const sel = document.getElementById('serverselect');
   const cur = sel.value;
   sel.innerHTML = '<option value="">(none)</option>' + servers.map(s => `<option value="${esc(s.id)}">${esc(s.id)}</option>`).join('');
