@@ -9,33 +9,53 @@ export function me() {
 }
 export const has = (m, perm) => m.permissions.includes(perm) || m.permissions.includes('site.admin');
 
+// Internet Archive-style top bar: logo and sections on the left, then
+// search box | SIGN UP | LOG IN | UPLOAD on the right.
+const ICONS = {
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 6 9.5h4V16h4V9.5h4z" fill="currentColor"/><path d="M4 15v5h16v-5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>',
+  user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4.2" fill="currentColor"/><path d="M3.5 21c.8-4.6 4.2-7 8.5-7s7.7 2.4 8.5 7z" fill="currentColor"/></svg>',
+};
+
 export function header(active) {
   const el = document.createElement('header');
   el.className = 'topnav';
+  const here = encodeURIComponent(location.pathname + location.search + location.hash);
+  const q = location.pathname === '/' ? new URLSearchParams(location.search).get('q') || '' : '';
   el.innerHTML = `
-    <a class="logo" href="/">
+    <a class="logo" href="/" title="Virtual World Archive">
       <svg viewBox="0 0 40 40" fill="#fff" aria-hidden="true"><rect x="4" y="32" width="32" height="4"/><rect x="6" y="12" width="4" height="18"/><rect x="14" y="12" width="4" height="18"/><rect x="22" y="12" width="4" height="18"/><rect x="30" y="12" width="4" height="18"/><path d="M3 10 20 3l17 7z"/></svg>
-      Virtual World Archive
+      <span>Virtual World Archive</span>
     </a>
-    <nav>
+    <nav class="sections">
       <a class="ext" href="https://archive.org/details/software">Software</a>
-      <a class="ext" href="https://archive.org/details/emulation">Emulation</a>
       <a href="/" class="${active === 'servers' ? 'active' : ''}">Server Library</a>
-      <a href="/#upload" class="${active === 'upload' ? 'active' : ''}">Upload</a>
       <a href="/toolkit.html" class="${active === 'toolkit' ? 'active' : ''}">Toolkit</a>
       <a href="/admin" class="${active === 'admin' ? 'active' : ''}" data-admin hidden>Access control</a>
     </nav>
-    <div class="account" data-account></div>`;
+    <div class="topright">
+      <form class="search" action="/" method="get" role="search">
+        <input type="search" name="q" placeholder="Search worlds" aria-label="Search worlds" value="${esc(q)}">
+        <button aria-label="Search">${ICONS.search}</button>
+      </form>
+      <div class="account" data-account>
+        <span class="usericon">${ICONS.user}</span>
+        <a href="/login?mode=register&next=${here}">Sign up</a><span class="sep">|</span><a href="/login?next=${here}">Log in</a>
+      </div>
+      <a class="uploadbtn ${active === 'upload' ? 'active' : ''}" href="/#upload" data-upload>${ICONS.upload}<span>Upload</span></a>
+    </div>`;
   document.body.prepend(el);
   me().then(m => {
     const box = el.querySelector('[data-account]');
     if (has(m, 'access.manage')) el.querySelector('[data-admin]').hidden = false;
+    if (!m.registration) box.innerHTML = `<span class="usericon">${ICONS.user}</span><a href="/login?next=${here}">Log in</a>`;
     if (m.user) {
-      box.innerHTML = `<a href="/account" class="${active === 'account' ? 'active' : ''}">${esc(m.user.name)}</a>
-        <button class="linkbtn" data-signout>Sign out</button>`;
+      box.innerHTML = `<span class="usericon">${ICONS.user}</span>
+        <a href="/account" class="${active === 'account' ? 'active' : ''}">${esc(m.user.name)}</a><span class="sep">|</span>
+        <button class="linkbtn" data-signout>Log out</button>`;
       box.querySelector('[data-signout]').onclick = async () => { await api('/api/auth/logout', { method: 'POST' }); location.href = '/'; };
     } else {
-      box.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Sign in</a>`;
+      el.querySelector('[data-upload]').href = '/login?next=' + encodeURIComponent('/#upload');
     }
   });
 }
