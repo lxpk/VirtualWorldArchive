@@ -109,3 +109,6 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ss]ceneDependencyCache*
 node_modules
 archive/data/
+
+# Local settings and secrets
+.env

@@ -1,0 +1,17 @@
+{
+  // GitHub Codespaces / Dev Containers: runs the whole archive (portal, world servers,
+  // Postgres) with Docker inside the codespace and opens the portal on port 8080.
+  "name": "Virtual World Archive",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "postCreateCommand": "bash .devcontainer/setup-env.sh",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Virtual World Archive", "onAutoForward": "openBrowser" }
+  }
+}

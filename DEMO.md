@@ -14,6 +14,16 @@ On first start the archive seeds itself with the Internet Archive VR world: it b
 the world server image, starts it plus a Postgres database as their own containers, and
 publishes the WebGL client. Open <http://localhost/> (or your `HTTP_PORT`).
 
+## Run it in GitHub Codespaces
+
+Open <https://codespaces.new/lxpk/VirtualWorldArchive?quickstart=1> (or **Code → Codespaces →
+Create codespace** on GitHub). The codespace installs Docker, runs `docker compose up -d --build`
+and opens the portal on forwarded port 8080 (first start takes a few minutes while images
+build). Register the first account to become Site Admin. The port is private to your GitHub
+account; to show it to others, right-click port 8080 in the **Ports** tab and set
+**Port Visibility → Public**. Codespaces stop after 30 minutes idle; starting it again restarts
+the stack.
+
 ## Accounts and access control
 
 - **Site Admin.** With `ADMIN_PASSWORD` set in `.env`, the archive creates a Site Admin
