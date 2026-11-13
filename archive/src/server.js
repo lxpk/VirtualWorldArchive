@@ -323,7 +323,9 @@ function requireInstance(user, s, perm) {
 function sameOrigin(req) {
   const o = req.headers.origin;
   if (!o) return true;
-  try { return new URL(o).host === req.headers.host; } catch { return false; }
+  // Behind a forwarding proxy (Codespaces, some tunnels) the public host is in X-Forwarded-Host.
+  const hosts = [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',').map(h => h.trim())];
+  try { return hosts.includes(new URL(o).host); } catch { return false; }
 }
 
 function serverView(s, user, { detail = false } = {}) {

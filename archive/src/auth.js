@@ -227,7 +227,8 @@ const pendingOAuth = new Map(); // state -> { verifier, next, linkUserId, expire
 
 function baseUrl(req) {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
-  return `${isHttps(req) ? 'https' : 'http'}://${req.headers.host}`;
+  const host = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim() || req.headers.host;
+  return `${isHttps(req) ? 'https' : 'http'}://${host}`;
 }
 const safeNext = n => (typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.includes('\\')) ? n : '/';
 
